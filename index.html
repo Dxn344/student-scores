@@ -3,34 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ระบบค้นหาคะแนนจาก Excel</title>
+  <title>Universal Excel Search</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    /* เพิ่ม CSS พื้นฐานให้ดูง่ายขึ้น */
+    body { font-family: sans-serif; line-height: 1.6; padding: 20px; color: #333; }
+    .container { max-width: 800px; margin: auto; }
+    .upload-section, .search-box { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ddd; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    th { background-color: #007bff; color: white; }
+    tr:nth-child(even) { background-color: #f2f2f2; }
+    .status { font-weight: bold; color: green; margin-top: 5px; }
+  </style>
 </head>
 <body>
   <div class="container">
-    <h1>📊 ตรวจสอบข้อมูลคะแนน</h1>
+    <h1>📂 ระบบค้นหาข้อมูลอเนกประสงค์</h1>
     
     <div class="upload-section">
-      <p>1. เลือกไฟล์ Excel ของคุณ (.xlsx, .xls)</p>
+      <h3>1. นำเข้าไฟล์ Excel</h3>
       <input type="file" id="uploadFile" accept=".xlsx, .xls" />
+      <div id="fileStatus" class="status"></div>
     </div>
-
-    <hr>
 
     <div class="search-box">
-      <p>2. ค้นหาข้อมูล (ชื่อ หรือ รหัส)</p>
-      <input id="q" type="text" placeholder="เช่น Somchai หรือ 65001">
-      <button id="btn">ค้นหา</button>
+      <h3>2. พิมพ์สิ่งที่ต้องการค้นหา</h3>
+      <input id="q" type="text" placeholder="ค้นหาได้ทุกอย่าง เช่น ชื่อคนไข้, รหัส, อาการ..." style="width: 70%; padding: 10px;">
+      <button id="btn" style="padding: 10px 20px; cursor: pointer;">ค้นหา</button>
     </div>
 
-    <div id="result" class="card"></div>
+    <div id="result"></div>
   </div>
 
   <script>
-    let excelData = null; // ตัวแปรเก็บข้อมูลหลังจากอ่านไฟล์เสร็จ
+    let excelData = null;
 
-    // --- ส่วนการอ่านไฟล์เมื่อมีการเลือกไฟล์ ---
+    // อ่านไฟล์ Excel
     document.querySelector("#uploadFile").addEventListener("change", function(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -39,60 +49,59 @@
       reader.onload = function(e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, {type: "array"});
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
         
-        // แปลงเป็น JSON และเก็บไว้ในตัวแปร excelData
-        excelData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
-        alert("โหลดข้อมูลเรียบร้อยแล้ว! สามารถค้นหาได้เลย");
+        // แปลงเป็น JSON
+        excelData = XLSX.utils.sheet_to_json(sheet, {defval: "-"});
+        document.querySelector("#fileStatus").innerText = `✅ โหลดไฟล์ "${file.name}" สำเร็จ!`;
+        document.querySelector("#result").innerHTML = ""; // ล้างผลลัพธ์เก่า
       };
       reader.readAsArrayBuffer(file);
     });
 
-    // --- ส่วนการค้นหา ---
+    // ระบบค้นหา
     document.querySelector("#btn").addEventListener("click", () => {
-      if (!excelData) {
-        alert("กรุณาเลือกไฟล์ Excel ก่อนครับ");
-        return;
-      }
-
+      if (!excelData) { alert("กรุณาเลือกไฟล์ก่อนครับ"); return; }
+      
       const q = document.querySelector("#q").value.trim().toLowerCase();
-      if (!q) {
-        alert("กรุณากรอกข้อมูลที่ต้องการค้นหา");
-        return;
-      }
+      if (!q) { alert("กรุณากรอกคำค้นหา"); return; }
 
-      // 🔎 ค้นหาแบบ "ประกอบด้วย" (Includes) ทำให้หาเจอง่ายขึ้น
-      const matches = excelData.filter(r => 
-        String(r.StudentID || "").toLowerCase().includes(q) || 
-        String(r.Name || "").toLowerCase().includes(q)
-      );
+      // 🔍 ค้นหาแบบ "กวาดทุกคอลัมน์" (Global Search)
+      const matches = excelData.filter(row => {
+        // วนลูปเช็คทุก Value ในแต่ละแถว ว่ามีคำที่ค้นหาไหม
+        return Object.values(row).some(value => 
+          String(value).toLowerCase().includes(q)
+        );
+      });
 
-      const resultContainer = document.querySelector("#result");
-      
-      if (matches.length === 0) {
-        resultContainer.innerHTML = "<p class='not-found'>❌ ไม่พบข้อมูลที่ตรงกับเงื่อนไข</p>";
-        return;
-      }
-
-      // แสดงผล (ในกรณีที่หาเจอหลายคน จะแสดงคนแรก หรือวนลูปแสดงทุกคนก็ได้)
-      // ในที่นี้ขอแสดงคนแรกที่เจอตามโครงสร้างเดิมของคุณ
-      const match = matches[0]; 
-
-      // กรองคอลัมน์ที่เป็นคะแนน
-      const SCORE_COL_PAT = /(คะแนน|เก็บ|สอบ|กลางภาค|ปลายภาค|รวม|quiz|test|score|point|mid(term)?|final|total)/i;
-      const scores = Object.entries(match).filter(([k]) => SCORE_COL_PAT.test(k));
-
-      let html = `<h2>ผลคะแนนของ ${match.Name || match.StudentID}</h2>`;
-      html += "<table><thead><tr><th>หัวข้อ</th><th>คะแนน</th></tr></thead><tbody>";
-      
-      for (const [k, v] of scores) {
-        html += `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`;
-      }
-      
-      html += "</tbody></table>";
-      resultContainer.innerHTML = html;
+      renderResult(matches);
     });
+
+    function renderResult(matches) {
+      const container = document.querySelector("#result");
+      if (matches.length === 0) {
+        container.innerHTML = "<p>❌ ไม่พบข้อมูลที่ต้องการ</p>";
+        return;
+      }
+
+      // สร้างหัวตารางแบบ Dynamic ตาม Key ของข้อมูลที่เจอ
+      const columns = Object.keys(matches[0]);
+      
+      let html = `<h3>พบข้อมูล ${matches.length} รายการ</h3>`;
+      html += "<table><thead><tr>";
+      columns.forEach(col => html += `<th>${col}</th>`);
+      html += "</tr></thead><tbody>";
+
+      // ใส่ข้อมูลในตาราง
+      matches.forEach(row => {
+        html += "<tr>";
+        columns.forEach(col => html += `<td>${row[col]}</td>`);
+        html += "</tr>";
+      });
+
+      html += "</tbody></table>";
+      container.innerHTML = html;
+    }
   </script>
 </body>
 </html>
