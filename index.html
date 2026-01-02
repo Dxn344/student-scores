@@ -3,17 +3,24 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ดูคะแนนของฉัน</title>
+  <title>ระบบค้นหาคะแนนจาก Excel</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <div class="container">
-    <h1>📊 ตรวจสอบคะแนน</h1>
-    <p>กรอก <strong>ชื่อจริง-นามสกุล</strong> หรือ <strong>รหัสนักเรียน</strong> ให้ตรงกับในระบบ</p>
+    <h1>📊 ตรวจสอบข้อมูลคะแนน</h1>
+    
+    <div class="upload-section">
+      <p>1. เลือกไฟล์ Excel ของคุณ (.xlsx, .xls)</p>
+      <input type="file" id="uploadFile" accept=".xlsx, .xls" />
+    </div>
+
+    <hr>
 
     <div class="search-box">
-      <input id="q" type="text" placeholder="เช่น Somchai Prasit หรือ 65001">
+      <p>2. ค้นหาข้อมูล (ชื่อ หรือ รหัส)</p>
+      <input id="q" type="text" placeholder="เช่น Somchai หรือ 65001">
       <button id="btn">ค้นหา</button>
     </div>
 
@@ -21,44 +28,70 @@
   </div>
 
   <script>
-    async function loadExcel() {
-      const res = await fetch("grades.xlsx");
-      const data = await res.arrayBuffer();
-      const wb = XLSX.read(data, {type:"array"});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      return XLSX.utils.sheet_to_json(sheet, {defval:""});
-    }
+    let excelData = null; // ตัวแปรเก็บข้อมูลหลังจากอ่านไฟล์เสร็จ
 
-    document.querySelector("#btn").addEventListener("click", async ()=>{
-      const q = document.querySelector("#q").value.trim().toLowerCase();
-      if(!q){ alert("กรุณากรอกชื่อหรือรหัสนักเรียน"); return; }
+    // --- ส่วนการอ่านไฟล์เมื่อมีการเลือกไฟล์ ---
+    document.querySelector("#uploadFile").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
 
-      const rows = await loadExcel();
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, {type: "array"});
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        // แปลงเป็น JSON และเก็บไว้ในตัวแปร excelData
+        excelData = XLSX.utils.sheet_to_json(worksheet, {defval: ""});
+        alert("โหลดข้อมูลเรียบร้อยแล้ว! สามารถค้นหาได้เลย");
+      };
+      reader.readAsArrayBuffer(file);
+    });
 
-      // 🔎 ค้นหาทั้ง StudentID และ Name
-      const match = rows.find(r => 
-        String(r.StudentID||"").trim().toLowerCase() === q ||
-        String(r.Name||"").trim().toLowerCase() === q
-      );
-
-      const result = document.querySelector("#result");
-      if(!match){
-        result.innerHTML = "<p class='not-found'>❌ ไม่พบข้อมูลในระบบ</p>";
+    // --- ส่วนการค้นหา ---
+    document.querySelector("#btn").addEventListener("click", () => {
+      if (!excelData) {
+        alert("กรุณาเลือกไฟล์ Excel ก่อนครับ");
         return;
       }
 
-      // เลือกเฉพาะคอลัมน์ที่เป็นคะแนน
+      const q = document.querySelector("#q").value.trim().toLowerCase();
+      if (!q) {
+        alert("กรุณากรอกข้อมูลที่ต้องการค้นหา");
+        return;
+      }
+
+      // 🔎 ค้นหาแบบ "ประกอบด้วย" (Includes) ทำให้หาเจอง่ายขึ้น
+      const matches = excelData.filter(r => 
+        String(r.StudentID || "").toLowerCase().includes(q) || 
+        String(r.Name || "").toLowerCase().includes(q)
+      );
+
+      const resultContainer = document.querySelector("#result");
+      
+      if (matches.length === 0) {
+        resultContainer.innerHTML = "<p class='not-found'>❌ ไม่พบข้อมูลที่ตรงกับเงื่อนไข</p>";
+        return;
+      }
+
+      // แสดงผล (ในกรณีที่หาเจอหลายคน จะแสดงคนแรก หรือวนลูปแสดงทุกคนก็ได้)
+      // ในที่นี้ขอแสดงคนแรกที่เจอตามโครงสร้างเดิมของคุณ
+      const match = matches[0]; 
+
+      // กรองคอลัมน์ที่เป็นคะแนน
       const SCORE_COL_PAT = /(คะแนน|เก็บ|สอบ|กลางภาค|ปลายภาค|รวม|quiz|test|score|point|mid(term)?|final|total)/i;
       const scores = Object.entries(match).filter(([k]) => SCORE_COL_PAT.test(k));
 
       let html = `<h2>ผลคะแนนของ ${match.Name || match.StudentID}</h2>`;
       html += "<table><thead><tr><th>หัวข้อ</th><th>คะแนน</th></tr></thead><tbody>";
+      
       for (const [k, v] of scores) {
-        html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+        html += `<tr><td><strong>${k}</strong></td><td>${v}</td></tr>`;
       }
+      
       html += "</tbody></table>";
-
-      result.innerHTML = html;
+      resultContainer.innerHTML = html;
     });
   </script>
 </body>
